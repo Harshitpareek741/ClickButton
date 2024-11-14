@@ -33,7 +33,7 @@ function updateState() {
         client.connection.send(JSON.stringify(payload));
     });
 
-    setTimeout(updateState, 500);
+    setTimeout(updateState, 100);
 }
 
 const server = http.createServer(app);
