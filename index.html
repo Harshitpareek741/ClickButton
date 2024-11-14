@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Color Battle Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f8ff;
+            color: #333;
+        }
+        h1 {
+            font-size: 36px;
+            margin-top: 20px;
+            color: #4a90e2;
+        }
+        #count {
+            font-size: 32px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        #btncreate, #joinbtn, #startButton, #play {
+            font-size: 18px;
+            padding: 10px 20px;
+            margin: 10px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        #btncreate {
+            background-color: #5cb85c;
+            color: white;
+        }
+        #joinbtn {
+            background-color: #f0ad4e;
+            color: white;
+        }
+        #startButton, #play {
+            background-color: #337ab7;
+            color: white;
+        }
+        #textarea {
+            width: 200px;
+            height: 40px;
+            margin: 10px;
+            border-radius: 5px;
+            padding: 5px;
+        }
+        #gameIdDisplay {
+            font-size: 18px;
+            color: #555;
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        #btns {
+            display: grid;
+            grid-template-columns: repeat(5, 60px);
+            gap: 10px;
+            margin-top: 20px;
+        }
+        #winnerDisplay {
+            font-size: 24px;
+            color: #d9534f;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+        .player {
+            display: flex;
+            align-items: center;
+            margin-top: 10px;
+        }
+        .player div {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Color Battle Game</h1>
+    <div id="count">0</div>
+    <button id="startButton">Start Game</button>
+
+    <button id="btncreate">Create Game</button>
+    <textarea id="textarea" placeholder="Enter Game ID to Join"></textarea>
+    <button id="joinbtn">Join Game</button>
+
+    <div id="gameIdDisplay"></div>
+
+    <div id="btns"></div>
+
+    <div id="winnerDisplay"></div>
+
+    <script>
+        const countDisplay = document.getElementById('count');
+        const btnContainer = document.getElementById("btns");
+        const btnCreate = document.getElementById("btncreate");
+        const btnJoin = document.getElementById('joinbtn');
+        const textArea = document.getElementById('textarea');
+        const winnerDisplay = document.getElementById('winnerDisplay');
+        const gameIdDisplay = document.getElementById('gameIdDisplay');
+
+        let clientId = null;
+        let playerColor = null;
+        let intervalId = null;
+        let count = 0;
+        let gameStarted = false;
+
+        const ws = new WebSocket("ws://localhost:9090");
+
+        function updateDisplay() {
+            countDisplay.textContent = count;
+        }
+
+        document.getElementById("startButton").addEventListener("click", () => {
+            if (!gameStarted) {
+                gameStarted = true;
+                count = 0;
+                updateDisplay();
+
+                intervalId = setInterval(() => {
+                    count++;
+                    updateDisplay();
+                }, 1000);
+
+                setTimeout(() => {
+                    clearInterval(intervalId);
+                    determineWinner();
+                    gameStarted = false;
+                }, 10000);
+            }
+        });
+
+        function determineWinner() {
+            const colorCounts = {};
+            document.querySelectorAll('#btns button').forEach(btn => {
+                const color = btn.style.backgroundColor;
+                if (color) {
+                    colorCounts[color] = (colorCounts[color] || 0) + 1;
+                }
+            });
+
+            const winnerColor = Object.entries(colorCounts).reduce((max, entry) => {
+                return entry[1] > (colorCounts[max] || 0) ? entry[0] : max;
+            }, null);
+
+            winnerDisplay.textContent = `Game Over! Winner: ${winnerColor || "No Color"}`;
+        }
+
+        function createButtons(number) {
+            btnContainer.innerHTML = '';
+            for (let i = 0; i < number; i++) {
+                const btn = document.createElement("button");
+                btn.style.height = "50px";
+                btn.style.width = "50px";
+                btn.id = i;
+                btn.addEventListener('click', () => {
+                    const payload = {
+                        "method": "play",
+                        "btnId": i,
+                        "color": playerColor
+                    };
+                    btn.style.backgroundColor = playerColor;
+                    ws.send(JSON.stringify(payload));
+                });
+                btnContainer.appendChild(btn);
+            }
+        }
+
+        ws.onopen = () => {
+            console.log("WebSocket connection established");
+        };
+
+        btnCreate.addEventListener("click", () => {
+            const payload = {
+                "method": "create",
+                "clientId": clientId
+            }
+            ws.send(JSON.stringify(payload));
+        });
+
+        btnJoin.addEventListener('click', () => {
+            const gameId = textArea.value;
+            const payload = {
+                "method": "join",
+                "gameId": gameId,
+                "clientId": clientId
+            };
+            ws.send(JSON.stringify(payload));
+        });
+
+        ws.onmessage = message => {
+            const response = JSON.parse(message.data);
+
+            if (response.method === "connect") {
+                clientId = response.clientId;
+                console.log("Connected with client " + clientId);
+            }
+            if (response.method === "create") {
+                const game = response.game;
+                gameIdDisplay.textContent = `Game ID: ${game.gameId}`;
+                textArea.value = game.gameId; // Pre-fill with game ID for easy sharing
+            }
+            if (response.method === "join") {
+                const game = response.game;
+                playerColor = response.color;
+                createButtons(game.balls);
+                game.clients.forEach(player => {
+                    const playerDiv = document.createElement('div');
+                    playerDiv.classList.add('player');
+                    playerDiv.innerHTML = `<div style="background-color:${player.color}"></div>${player.clientid}`;
+                    document.body.appendChild(playerDiv);
+                });
+                btnContainer.style.width = '200px';
+                btnContainer.style.height = '400px';
+            }
+            if (response.method === "update") {
+                const state = response.state;
+                Object.entries(state).forEach(([index, color]) => {
+                    const btn = document.getElementById(index);
+                    if (btn) btn.style.backgroundColor = color;
+                });
+            }
+        }
+    </script>
+</body>
+</html>
